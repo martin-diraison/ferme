@@ -1,0 +1,6 @@
+{
+  "name": "eau-de-la-ferme",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test tests/domain.test.mjs" }
+}
