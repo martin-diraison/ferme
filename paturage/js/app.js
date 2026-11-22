@@ -10,7 +10,7 @@ import { viewHome, viewMove, viewCarte, viewCal, viewPlus, viewNav, viewSheet, v
 import { parcelView, padScreenSize, MIN_TAP_PX } from "./mapsvg.js";
 import { attachMapGestures } from "./mapgesture.js";
 
-const VERSION = "9.2.2";
+const VERSION = "9.2.3";
 const app = document.getElementById("app");
 let BASE_CARTE = null;
 const SET = { restTarget: 45, pressureMax: 2, longStay: 10, theme: "light" };

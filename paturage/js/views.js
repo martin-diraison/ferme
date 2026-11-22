@@ -351,7 +351,7 @@ export function viewPlus(S, C) {
     ${item("sub-exports", "Exports et sauvegarde", "CSV, ZIP, sauvegarde JSON, restauration")}
     ${item("sub-settings", "Réglages", "Objectif de repos " + C.settings.restTarget + " j · catégories UGB · thème")}
     ${item("sub-mapcfg", "Parcelles et paddocks", GEO.parcels.length + " parcelles · " + GEO.pads.length + " paddocks · " + fmtNum(GEO.pads.reduce((s, p) => s + p.area, 0), 1) + " ha")}
-  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.2.2 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
+  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.2.3 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
 }
 const subHead = (title, back = "plus-back") => `<div class="row" style="flex-wrap:nowrap;gap:4px;margin:-8px 0 8px -10px"><button type="button" class="iconbtn" data-a="${back}" aria-label="Retour">${icon("back", 24)}</button><h1 style="font-size:24px">${title}</h1></div>`;
 
