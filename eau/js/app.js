@@ -1,5 +1,5 @@
 /* Eau de la ferme — écrans et actions.
-   Onglets : Carte · Tournée · Pluie · Plus. Sous-écrans : saisie d'un point, fiche/édition d'un point,
+   Onglets : Carte · Tournée · Pluie · Forage · Plus. Sous-écrans : saisie d'un point, fiche/édition d'un point,
    récapitulatif de tournée, placement sur la carte. Rendu par chaînes HTML + délégation d'événements. */
 import * as S from "./store.js";
 import * as D from "./domain.js";
@@ -8,7 +8,7 @@ import { esc, uid } from "./util.js";
 import { picto } from "./icons.js";
 import * as Y from "./sync.js";
 
-export const VERSION = "0.2.1";
+export const VERSION = "0.3.0";
 const app = document.getElementById("app");
 let GEO = null, MORCEAUX = [];
 
@@ -23,6 +23,7 @@ const ui = {
   draft: null,        // saisie d'un point en cours
   kp: null,           // pavé numérique actif : "pluie" | "hauteur"
   pluie: null,        // {lecture, quand, vide, editId}
+  forage: null,       // {quand, debut, fin, commentaire, editId}
   gps: null, gpsAcc: null, gpsT: 0, gpsErr: null, gpsWatch: null,
   confirm: null,      // clé d'un bouton « Confirmer » en attente
   theme: "auto",
@@ -102,7 +103,7 @@ function clavier(cible) {
 }
 function onglets() {
   const t = tourneeOuverte();
-  const it = [["carte", "Carte", "carte"], ["tournee", "Tournée", "tournee"], ["pluie", "Pluie", "pluie"], ["plus", "Plus", "plus_menu"]];
+  const it = [["carte", "Carte", "carte"], ["tournee", "Tournée", "tournee"], ["pluie", "Pluie", "pluie"], ["forage", "Forage", "forage"], ["plus", "Plus", "plus_menu"]];
   return `<nav class="tabs">${it.map(([k, l, ic]) => `<button type="button" class="tab ${ui.tab === k && !ui.vue ? "on" : ""}" data-a="tab" data-k="${k}">${picto(ic, 24)}<span>${l}</span>${k === "tournee" && t ? `<i class="tab-dot" aria-label="tournée en cours"></i>` : ""}</button>`).join("")}</nav>`;
 }
 
@@ -116,11 +117,13 @@ function render() {
   else if (ui.tab === "carte") html = vueCarte() + onglets();
   else if (ui.tab === "tournee") html = vueTournee() + onglets();
   else if (ui.tab === "pluie") html = vuePluie() + onglets();
+  else if (ui.tab === "forage") html = vueForage() + onglets();
   else html = vuePlus() + onglets();
   const scroll = window.scrollY;
   app.innerHTML = html;
   if (ui.keepScroll) window.scrollTo(0, scroll);
   ui.keepScroll = false;
+  chargerVignettes();
   const slot = app.querySelector("[data-map-slot]");
   if (slot) {
     if (M.mapAvailable()) { M.ensureMap(GEO.mnt, cadrage()); M.attach(slot); majCarte(); }
@@ -243,6 +246,7 @@ function ficheSheet(p) {
     <div class="row">${pastille(dern?.etat, 30)}<div><b>${dern ? D.libEtat(p.type, dern.etat) : "Pas encore relevé"}</b>${dern ? `<div class="sub">${fJour(dern.t)} · ${ilYa(dern.t)}</div>` : ""}</div></div>
     ${hist.length ? `<div class="histo">${hist.slice(-24).map((o) => `<div class="histo-c">${pastille(o.etat, 30)}<span>${fJour(o.t).replace(/ \d{4}$/, "")}</span></div>`).join("")}</div>` : ""}
     ${mesuresResume(hist)}
+    ${vignettes(hist.flatMap((o) => o.photos || []).slice(-8), false)}
     <div class="row2">
       ${btn("editer-point", "Modifier", "", `data-id="${p.id}"`)}
       ${t ? btn("saisir-depuis-fiche", "Relever ce point", "primary", `data-id="${p.id}"`) : ""}
@@ -340,8 +344,8 @@ function ouvrirSaisie(pointId, tourneeId) {
   const p = point(pointId); if (!p) return;
   const o = D.obsDeTournee(obs(), tourneeId).get(pointId);
   ui.draft = o ? { etat: o.etat, hauteur: o.hauteurCm !== null && o.hauteurCm !== undefined ? String(o.hauteurCm).replace(".", ",") : "", seauL: o.seauL || p.seauL || 10,
-    chronoS: o.chronoS || null, commentaire: o.commentaire || "", obsId: o.id, t: o.t }
-    : { etat: null, hauteur: "", seauL: p.seauL || 10, chronoS: null, commentaire: "", obsId: null };
+    chronoS: o.chronoS || null, commentaire: o.commentaire || "", obsId: o.id, t: o.t, photos: (o.photos || []).slice(), ajoutees: [] }
+    : { etat: null, hauteur: "", seauL: p.seauL || 10, chronoS: null, commentaire: "", obsId: null, nouvelId: uid("o"), photos: [], ajoutees: [] };
   ui.kp = null; ui.chronoDebut = null;
   ui.vue = { k: "saisie", pointId, tourneeId };
   window.scrollTo(0, 0);
@@ -383,6 +387,9 @@ function vueSaisie() {
     ${eau ? `<button type="button" class="btn arret-btn block" data-a="arret">${picto("arret", 22)} L'écoulement s'arrête ici</button>` : ""}
     <label class="champ"><span>Commentaire <span class="facult">facultatif</span></span>
       <textarea rows="2" data-in="commentaire" placeholder="Micro du clavier pour dicter">${esc(dr.commentaire)}</textarea></label>
+    <div class="champ"><span>Photos <span class="facult">facultatif · envoyées dans Google Drive</span></span>
+      ${vignettes(dr.photos, true)}
+      <label class="btn block">${picto("photo", 22)} ${ui.photoEnCours ? "Préparation de la photo…" : "Prendre une photo"}<input type="file" accept="image/*" capture="environment" data-in="photo" hidden></label></div>
     <div class="espace-bas"></div>
     <div class="barre-bas">
       ${btn("passer", "Passer", "")}
@@ -420,7 +427,7 @@ function vueRecap() {
     ${manquants.length ? `<h2>Non relevés (${manquants.length})</h2><ul class="liste">${manquants.map((p) => `<li><button type="button" class="ligne" data-a="saisir-t" data-id="${p.id}" data-t="${t.id}"><span class="l-ic">${picto(p.type, 20)}</span><span class="grow"><b>${esc(p.nom)}</b><span class="sub">${altLib(p)}</span></span><span class="l-afaire">à relever</span></button></li>`).join("")}</ul>` : ""}
     <h2>Relevés</h2>
     <ul class="liste">${ordre.filter((p) => faits.has(p.id)).map((p) => { const o = faits.get(p.id); return `<li><button type="button" class="ligne fait" data-a="saisir-t" data-id="${p.id}" data-t="${t.id}">
-      ${pastille(o.etat, 30)}<span class="grow"><b>${esc(p.nom)}</b><span class="sub">${D.libEtat(p.type, o.etat)}${o.hauteurCm !== null && o.hauteurCm !== undefined ? " · " + fNum(o.hauteurCm, 0) + " cm" : ""}${o.debitLmin ? " · " + fNum(o.debitLmin) + " L/min" : ""}${o.commentaire ? " · « " + esc(o.commentaire) + " »" : ""}</span></span></button></li>`; }).join("")}</ul>
+      ${pastille(o.etat, 30)}<span class="grow"><b>${esc(p.nom)}</b><span class="sub">${D.libEtat(p.type, o.etat)}${o.hauteurCm !== null && o.hauteurCm !== undefined ? " · " + fNum(o.hauteurCm, 0) + " cm" : ""}${o.debitLmin ? " · " + fNum(o.debitLmin) + " L/min" : ""}${o.commentaire ? " · « " + esc(o.commentaire) + " »" : ""}${o.photos?.length ? " · " + o.photos.length + " photo" + (o.photos.length > 1 ? "s" : "") : ""}</span></span></button></li>`; }).join("")}</ul>
     <h2>Arrêts de l'écoulement</h2>
     ${listeArrets(t.id) || `<p class="sub">Aucun.</p>`}
     <div class="espace"></div>
@@ -585,6 +592,7 @@ function vuePlus() {
       ${btn("csv", "Relevés du pluviomètre", "block", `data-k="releves"`)}
       ${btn("csv", "Pluie journalière retenue", "block", `data-k="journal"`)}
       ${btn("csv", "Arrêts de l'écoulement", "block", `data-k="arrets"`)}
+      ${btn("csv", "Tests du forage (avec eaux de surface et pluie)", "block", `data-k="forage"`)}
       ${btn("csv", "Points d'eau", "block", `data-k="points"`)}
     </div>
     <h2>Échelles d'état</h2>
@@ -667,8 +675,8 @@ function exportCSV(k) {
   if (k === "obs") {
     const ts = new Map(tournees().map((t) => [t.id, t]));
     const l = obs().slice().sort((a, b) => a.t - b.t).map((o) => { const p = point(o.pointId) || {}; const t = ts.get(o.tourneeId);
-      return [t ? dateHeure(t.debut) : "", dateHeure(o.t), p.nom, p.type, dec(p.alt), o.etat === D.IMPOSSIBLE ? "" : o.etat, D.libEtat(p.type, o.etat), dec(o.hauteurCm), dec(o.seauL), dec(o.chronoS), dec(o.debitLmin), o.commentaire, o.lng ? dec(o.lng) : "", o.lat ? dec(o.lat) : ""]; });
-    telecharger(`observations_${jour}.csv`, csv(["tournee", "date_heure", "point", "type", "altitude_m", "etat", "libelle", "hauteur_cm", "seau_L", "chrono_s", "debit_L_min", "commentaire", "gps_lng", "gps_lat"], l), "text/csv");
+      return [t ? dateHeure(t.debut) : "", dateHeure(o.t), p.nom, p.type, dec(p.alt), o.etat === D.IMPOSSIBLE ? "" : o.etat, D.libEtat(p.type, o.etat), dec(o.hauteurCm), dec(o.seauL), dec(o.chronoS), dec(o.debitLmin), o.commentaire, o.lng ? dec(o.lng) : "", o.lat ? dec(o.lat) : "", (o.photos || []).map((x) => x.url || "").filter(Boolean).join(" ")]; });
+    telecharger(`observations_${jour}.csv`, csv(["tournee", "date_heure", "point", "type", "altitude_m", "etat", "libelle", "hauteur_cm", "seau_L", "chrono_s", "debit_L_min", "commentaire", "gps_lng", "gps_lat", "photos"], l), "text/csv");
   } else if (k === "releves") {
     const l = D.relevesCalcules(S.live("pluies")).map((r) => [dateHeure(r.t), dec(r.lecture), r.vide ? "oui" : "non", dec(r.mm), r.jours.length, r.jours[0], r.jours[r.jours.length - 1]]);
     telecharger(`releves_pluie_${jour}.csv`, csv(["date_heure", "lecture_mm", "vide_apres", "pluie_retenue_mm", "nb_jours", "du", "au"], l), "text/csv");
@@ -679,6 +687,9 @@ function exportCSV(k) {
     const ts = new Map(tournees().map((t) => [t.id, t]));
     const l = arrets().slice().sort((a, b) => a.t - b.t).map((a) => [ts.get(a.tourneeId) ? dateHeure(ts.get(a.tourneeId).debut) : "", dateHeure(a.t), dec(a.lng), dec(a.lat), dec(a.alt), dec(a.precision)]);
     telecharger(`arrets_ecoulement_${jour}.csv`, csv(["tournee", "date_heure", "lng", "lat", "altitude_m", "precision_m"], l), "text/csv");
+  } else if (k === "forage") {
+    const l = lignesForage().map((c) => [dateHeure(c.t), dec(c.indexDebut), dec(c.indexFin), dec(c.volume), dec(c.reposH), dec(c.mares.moy), c.mares.n, dec(c.ruisseaux.moy), c.ruisseaux.n, dec(c.pluie30), c.commentaire || ""]);
+    telecharger(`forage_tests_${jour}.csv`, csv(["date_heure", "index_debut_m3", "index_fin_m3", "volume_m3", "repos_h", "indice_mares_0_4", "nb_mares", "indice_ruisseaux_0_4", "nb_points_ruisseaux", "pluie_30j_mm", "commentaire"], l), "text/csv");
   } else if (k === "points") {
     const l = points().map((p) => [p.nom, p.type, dec(p.lng), dec(p.lat), dec(p.alt), p.actif === false ? "non" : "oui", (p.mesures || []).join(" "), p.sig || ""]);
     telecharger(`points_eau_${jour}.csv`, csv(["nom", "type", "lng", "lat", "altitude_m", "suivi", "mesures", "nom_sig"], l), "text/csv");
@@ -715,7 +726,7 @@ const A = {
   },
   saisir(el) { const t = tourneeOuverte(); if (t) ouvrirSaisie(el.dataset.id, t.id); },
   "saisir-t"(el) { ouvrirSaisie(el.dataset.id, el.dataset.t); },
-  "quitter-saisie"() { arreterChrono(); const t = S.get("tournees", ui.vue.tourneeId); ui.vue = t && t.terminee ? { k: "recap", tourneeId: t.id } : null; ui.draft = null; render(); },
+  "quitter-saisie"() { arreterChrono(); oublierBrouillons(); const t = S.get("tournees", ui.vue.tourneeId); ui.vue = t && t.terminee ? { k: "recap", tourneeId: t.id } : null; ui.draft = null; render(); },
   etat(el) { ui.draft.etat = el.dataset.k === "imp" ? D.IMPOSSIBLE : Number(el.dataset.k); rerender(); },
   "kp-ouvrir"(el) { ui.kp = ui.kp === el.dataset.k ? null : el.dataset.k; rerender(); },
   kp(el) {
@@ -735,15 +746,16 @@ const A = {
   },
   "chrono-stop"() { ui.draft.chronoS = Math.round((Date.now() - ui.chronoDebut) / 100) / 10; arreterChrono(); rerender(); },
   "chrono-raz"() { ui.draft.chronoS = null; rerender(); },
-  passer() { arreterChrono(); allerSuivant(); },
+  passer() { arreterChrono(); oublierBrouillons(); allerSuivant(); },
   async "enregistrer-obs"() {
     arreterChrono();
     const { pointId, tourneeId } = ui.vue, dr = ui.draft, p = point(pointId);
     const debit = D.debitSeau(dr.seauL, dr.chronoS);
-    const rec = { id: dr.obsId || uid("o"), tourneeId, pointId, t: dr.t || Date.now(), etat: dr.etat,
+    const rec = { id: dr.obsId || dr.nouvelId, tourneeId, pointId, t: dr.t || Date.now(), etat: dr.etat, photos: dr.photos.slice(),
       hauteurCm: numDe(dr.hauteur), seauL: dr.chronoS ? dr.seauL : null, chronoS: dr.chronoS || null, debitLmin: debit,
       commentaire: dr.commentaire.trim() || null, lng: ui.gps ? +ui.gps[0].toFixed(6) : null, lat: ui.gps ? +ui.gps[1].toFixed(6) : null, gpsAcc: ui.gps ? Math.round(ui.gpsAcc) : null };
     if (dr.obsId) { const old = S.get("obs", dr.obsId); if (old) rec.updatedAt = old.updatedAt; }
+    for (const id of dr.ajoutees) { const ph = await S.getPhoto(id); if (ph && rec.photos.some((x) => x.id === id)) await S.putPhoto({ ...ph, brouillon: false }); }
     await S.save("obs", rec, { silent: true });
     if (debit && p.seauL !== dr.seauL) await S.save("points", { ...p, seauL: dr.seauL }, { silent: true });
     toast(`${p.nom} : ${D.libEtat(p.type, rec.etat)}`);
@@ -810,6 +822,28 @@ const A = {
   "pl-edit"(el) { const r = S.get("pluies", el.dataset.id); ui.pluie = { lecture: String(r.lecture).replace(".", ","), quand: toLocalInput(r.t), vide: r.vide, editId: r.id }; ui.confirm = null; window.scrollTo(0, 0); render(); },
   "pl-annuler"() { nouvellePluie(); ui.confirm = null; render(); },
   async "pl-suppr"() { const id = ui.pluie.editId; nouvellePluie(); ui.confirm = null; await S.remove("pluies", id); toast("Relevé supprimé"); },
+  /* forage */
+  async "fo-ok"() {
+    const f = ui.forage, deb = numDe(f.debut), fin = numDe(f.fin);
+    if (D.volumeForage(deb, fin) === null) return;
+    const t = new Date(f.quand).getTime() || Date.now();
+    const base = f.editId ? S.get("forages", f.editId) : { id: uid("fo") };
+    const rec = { ...base, t, indexDebut: deb, indexFin: fin, commentaire: f.commentaire.trim() || null };
+    nouveauForage();
+    await S.save("forages", rec);
+    toast(`Test enregistré : ${fVol(D.volumeForage(deb, fin))}`);
+  },
+  "fo-edit"(el) { const r = S.get("forages", el.dataset.id); ui.forage = { quand: toLocalInput(r.t), debut: dec(r.indexDebut), fin: dec(r.indexFin), commentaire: r.commentaire || "", editId: r.id }; ui.confirm = null; window.scrollTo(0, 0); render(); },
+  "fo-annuler"() { nouveauForage(); ui.confirm = null; render(); },
+  async "fo-suppr"() { const id = ui.forage.editId; nouveauForage(); ui.confirm = null; await S.remove("forages", id); toast("Test supprimé"); },
+  /* photos */
+  "photo-voir"(el) { voirPhoto(el.dataset.id); },
+  "photo-suppr"(el) {
+    const id = el.dataset.id, dr = ui.draft;
+    dr.photos = dr.photos.filter((x) => x.id !== id);
+    if (dr.ajoutees.includes(id)) { dr.ajoutees = dr.ajoutees.filter((x) => x !== id); S.delPhoto(id); }
+    rerender();
+  },
   /* plus */
   async sauver() {
     const data = {}; for (const e of S.ENTITIES) data[e] = S.DATA[e];
@@ -849,6 +883,145 @@ async function majSauvegarde() {
   el.textContent = "Dernière sauvegarde exportée : " + (t ? fJour(t, true) + " (" + ilYa(t) + ")" : "jamais");
 }
 
+/* ---------- forage ---------- */
+function nouveauForage() { ui.forage = { quand: toLocalInput(Date.now()), debut: "", fin: "", commentaire: "", editId: null }; }
+function fVol(v) { return v === null || v === undefined ? "—" : fNum(v, 2) + " m³ (" + Math.round(v * 1000).toLocaleString("fr-FR") + " L)"; }
+/* Chaque test avec les eaux de surface et la pluie des 30 jours qui le précèdent. */
+function lignesForage() {
+  const journal = D.pluieJournaliere(S.live("pluies")), avecPluie = S.live("pluies").length > 0;
+  return D.testsCalcules(S.live("forages")).map((c) => {
+    const j = D.jourISO(c.t);
+    return { ...c, mares: D.indiceSurface(points(), obs(), c.t, "mare"), ruisseaux: D.indiceSurface(points(), obs(), c.t, "eau"),
+      pluie30: avecPluie ? D.cumul(journal, D.jourPlus(j, -30), D.jourPlus(j, -1)) : null };
+  });
+}
+function vueForage() {
+  if (!ui.forage) nouveauForage();
+  const f = ui.forage, lignes = lignesForage();
+  const tQ = new Date(f.quand).getTime();
+  const prec = lignes.filter((x) => x.id !== f.editId && x.t < tQ).slice(-1)[0];
+  const reposH = prec ? (tQ - prec.t) / 36e5 : null;
+  const vols = lignes.map((c) => c.volume).filter((v) => v !== null);
+  const dern = lignes.slice(-1)[0];
+  return `<main class="screen">
+    <h1>${f.editId ? "Corriger un test" : "Test du forage"}</h1>${voyant()}
+    <p class="sub">On tire l'eau jusqu'à ce qu'elle s'épuise d'elle-même, puis on lit le compteur. Au moins ${D.REPOS_MIN_H} h entre deux tests.</p>
+    <label class="champ"><span>Date et heure du test</span><input type="datetime-local" data-in="fo-quand" value="${f.quand}"></label>
+    ${prec ? `<p class="sub ${reposH < D.REPOS_MIN_H ? "err-t" : ""}">Test précédent : ${fJour(prec.t)} à ${fHeure(prec.t)}, il y a ${fNum(reposH, 0)} h${reposH < D.REPOS_MIN_H ? ` — <b>moins de ${D.REPOS_MIN_H} h de repos</b> : le forage n'a peut-être pas fini de se recharger.` : "."}${prec.indexFin !== null && prec.indexFin !== undefined ? ` Dernier index lu : ${fNum(prec.indexFin, 3)} m³.` : ""}</p>` : `<p class="sub">Premier test.</p>`}
+    <div class="grille2">
+      <label class="champ"><span>Index au début (m³)</span><input type="text" inputmode="decimal" data-in="fo-debut" value="${esc(f.debut)}" placeholder="ex. 1234,567" autocomplete="off"></label>
+      <label class="champ"><span>Index à la fin (m³)</span><input type="text" inputmode="decimal" data-in="fo-fin" value="${esc(f.fin)}" placeholder="quand l'eau s'arrête" autocomplete="off"></label>
+    </div>
+    <div class="resultat" data-fo-vol>${forageCalc()}</div>
+    <label class="champ"><span>Commentaire <span class="facult">facultatif</span></span><textarea rows="2" data-in="fo-com" placeholder="Usage de l'eau, incident…">${esc(f.commentaire)}</textarea></label>
+    <div class="row2">
+      ${f.editId ? btn("fo-annuler", "Annuler") : ""}
+      <button type="button" class="btn primary big grow" data-a="fo-ok" ${D.volumeForage(numDe(f.debut), numDe(f.fin)) === null ? "disabled" : ""}>Enregistrer</button>
+    </div>
+    ${f.editId ? confirmBtn("forage:" + f.editId, "fo-suppr", "Supprimer ce test", "Confirmer la suppression", "") : ""}
+    <h2>Résumé</h2>
+    <div class="tuiles3">
+      <div class="tuile"><span>Dernier test</span><b>${dern && dern.volume !== null ? fNum(dern.volume, 2) : "—"}</b><small>m³</small></div>
+      <div class="tuile"><span>Moyenne</span><b>${vols.length ? fNum(vols.reduce((a, b) => a + b, 0) / vols.length, 2) : "—"}</b><small>m³</small></div>
+      <div class="tuile"><span>Tests</span><b>${lignes.length}</b></div>
+    </div>
+    <h2>Volume et eaux de surface</h2>
+    <p class="sub">Peut-on se passer d'une sonde ? Si le volume disponible suit l'état des mares et des ruisseaux, les deux courbes évoluent ensemble. État de surface = moyenne du dernier relevé de chaque point, de moins de ${D.AGE_MAX_J} jours avant le test (0 = à sec, 4 = débordement).</p>
+    ${grapheForage(lignes)}
+    <h2>Tests</h2>
+    ${lignes.length ? `<ul class="liste">${lignes.slice().reverse().map((c) => `<li><button type="button" class="ligne" data-a="fo-edit" data-id="${c.id}">
+      <span class="grow"><b>${fJour(c.t)} · ${fHeure(c.t)}</b><span class="sub">${c.reposH !== null ? "Repos " + fNum(c.reposH, 0) + " h" + (c.reposCourt ? " (court)" : "") + " · " : ""}Mares ${c.mares.moy !== null ? fNum(c.mares.moy) + "/4" : "—"} · Ruisseaux ${c.ruisseaux.moy !== null ? fNum(c.ruisseaux.moy) + "/4" : "—"}${c.pluie30 !== null ? " · Pluie 30 j " + fNum(c.pluie30) + " mm" : ""}${c.commentaire ? " · « " + esc(c.commentaire) + " »" : ""}</span></span>
+      <b class="mm">${c.volume !== null ? fNum(c.volume, 2) + " m³" : "—"}</b></button></li>`).join("")}</ul>` : `<p class="sub">Aucun test enregistré.</p>`}
+  </main>`;
+}
+function forageCalc() {
+  const f = ui.forage, deb = numDe(f.debut), fin = numDe(f.fin);
+  if (deb === null || fin === null) return "Volume tiré : —";
+  if (fin < deb) return `<span class="err-t">L'index de fin est plus petit que celui du début.</span>`;
+  return `Volume tiré : <b>${fVol(D.volumeForage(deb, fin))}</b>`;
+}
+function majForageCalc() {
+  const el = app.querySelector("[data-fo-vol]"); if (el) el.innerHTML = forageCalc();
+  const b = app.querySelector('[data-a="fo-ok"]'); if (b) b.disabled = D.volumeForage(numDe(ui.forage.debut), numDe(ui.forage.fin)) === null;
+}
+function grapheForage(lignes) {
+  const L = lignes.filter((c) => c.volume !== null);
+  if (L.length < 2) return `<p class="sub">Le graphique apparaîtra à partir de deux tests.</p>`;
+  const W = 360, H = 150, g = 30, d = 22, haut = 12, bas = H - 4;
+  const t0 = L[0].t, t1 = L[L.length - 1].t;
+  const x = (t) => g + ((t - t0) / (t1 - t0 || 1)) * (W - g - d);
+  const vmax = Math.max(...L.map((c) => c.volume)) * 1.1 || 1;
+  const yv = (v) => bas - (v / vmax) * (bas - haut), ye = (e) => bas - (e / 4) * (bas - haut);
+  let s = `<svg class="graphe" viewBox="0 0 ${W} ${H + 18}" role="img" aria-label="Volume tiré au forage et état des eaux de surface">`;
+  for (const e of [0, 2, 4]) s += `<line x1="${g}" x2="${W - d}" y1="${ye(e)}" y2="${ye(e)}" class="g-grille"/><text x="${W - d + 4}" y="${ye(e) + 3}" class="g-t">${e}</text>`;
+  s += `<text x="${g - 4}" y="${haut + 3}" text-anchor="end" class="g-t">${fNum(vmax / 1.1, 1)}</text><text x="${g - 4}" y="${bas}" text-anchor="end" class="g-t">0</text><text x="2" y="${H + 14}" class="g-t">m³</text>`;
+  for (const c of L) s += `<rect x="${x(c.t) - 4}" y="${yv(c.volume)}" width="8" height="${bas - yv(c.volume)}" class="b-mes"><title>${fJour(c.t)} : ${fNum(c.volume, 2)} m³</title></rect>`;
+  for (const [cle, cls] of [["mares", "g-mares"], ["ruisseaux", "g-ruis"]]) {
+    const pts = L.filter((c) => c[cle].moy !== null).map((c) => [x(c.t), ye(c[cle].moy)]);
+    if (pts.length > 1) s += `<polyline points="${pts.map((p) => p.join(",")).join(" ")}" class="${cls}" fill="none"/>`;
+    for (const p of pts) s += `<circle cx="${p[0]}" cy="${p[1]}" r="3.5" class="${cls} pt"/>`;
+  }
+  s += `<text x="${g}" y="${H + 14}" class="g-t">${fJour(t0)}</text><text x="${W - d}" y="${H + 14}" text-anchor="end" class="g-t">${fJour(t1)}</text></svg>`;
+  return s + `<div class="leg-l"><i class="b-mes"></i>Volume tiré (m³) <i class="l-mares"></i>État des mares (0–4) <i class="l-ruis"></i>État des ruisseaux (0–4)</div>`;
+}
+
+/* ---------- photos ---------- */
+const photoURLs = new Map();
+async function reduirePhoto(file, max = 1600, q = 0.8) {
+  let src, w, h;
+  try { src = await createImageBitmap(file); w = src.width; h = src.height; }
+  catch (_) { const img = new Image(); img.src = URL.createObjectURL(file); await img.decode(); src = img; w = img.naturalWidth; h = img.naturalHeight; }
+  const k = Math.min(1, max / Math.max(w, h)), c = document.createElement("canvas");
+  c.width = Math.round(w * k); c.height = Math.round(h * k);
+  c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+  return new Promise((res, rej) => c.toBlob((b) => b ? res(b) : rej(new Error("photo illisible")), "image/jpeg", q));
+}
+async function ajouterPhoto(file) {
+  const v = ui.vue, dr = ui.draft; if (v?.k !== "saisie" || !dr) return;
+  ui.photoEnCours = true; rerender();
+  try {
+    const blob = await reduirePhoto(file), p = point(v.pointId) || {};
+    const id = uid("ph"), obsId = dr.obsId || dr.nouvelId;
+    const nom = D.jourISO(Date.now()) + "_" + String(p.nom || "point").normalize("NFD").replace(/[^\w-]+/g, "-").replace(/-+/g, "-") + "_" + id + ".jpg";
+    await S.putPhoto({ id, obsId, nom, blob, t: Date.now(), envoye: false, brouillon: true });
+    if (ui.draft === dr) { dr.photos.push({ id, driveId: null, url: null }); dr.ajoutees.push(id); }
+    toast("Photo ajoutée (" + Math.round(blob.size / 1024) + " Ko)");
+  } catch (err) { toast("Photo impossible : " + err.message); }
+  ui.photoEnCours = false; rerender();
+}
+function oublierBrouillons() { const dr = ui.draft; if (dr?.ajoutees) for (const id of dr.ajoutees) S.delPhoto(id); }
+function vignettes(liste, modifiable) {
+  if (!liste?.length) return "";
+  return `<div class="vignettes">${liste.map((ph) => `<div class="vig"><button type="button" class="vig-b" data-a="photo-voir" data-id="${ph.id}" aria-label="Voir la photo"><img alt="" data-ph="${ph.id}"><span>${ph.url ? "Drive" : "en attente"}</span></button>
+    ${modifiable ? `<button type="button" class="vig-x" data-a="photo-suppr" data-id="${ph.id}" aria-label="Retirer la photo">✕</button>` : ""}</div>`).join("")}</div>`;
+}
+async function urlPhoto(id) {
+  if (photoURLs.has(id)) return photoURLs.get(id);
+  const ph = await S.getPhoto(id).catch(() => null);
+  const u = ph?.blob ? URL.createObjectURL(ph.blob) : null;
+  photoURLs.set(id, u); return u;
+}
+async function chargerVignettes() {
+  for (const img of app.querySelectorAll("img[data-ph]")) {
+    const u = await urlPhoto(img.dataset.ph);
+    if (u) img.src = u; else img.closest(".vig-b")?.classList.add("distante");
+  }
+}
+function trouverLienPhoto(id) {
+  for (const o of S.DATA.obs) for (const x of o.photos || []) if (x.id === id) return x;
+  return ui.draft?.photos?.find((x) => x.id === id) || null;
+}
+async function voirPhoto(id) {
+  const u = await urlPhoto(id), lien = trouverLienPhoto(id);
+  if (!u && lien?.url) { window.open(lien.url, "_blank", "noopener"); return; }
+  if (!u) { toast("Photo pas encore arrivée sur cet appareil."); return; }
+  const el = document.createElement("div");
+  el.className = "photo-plein"; el.setAttribute("role", "dialog");
+  el.innerHTML = `<img src="${u}" alt="Photo du relevé"><div class="row2">${lien?.url ? `<a class="btn" href="${esc(lien.url)}" target="_blank" rel="noopener">Ouvrir dans Drive</a>` : ""}<button type="button" class="btn primary">Fermer</button></div>`;
+  el.addEventListener("click", (e) => { if (e.target.tagName !== "A") el.remove(); });
+  document.body.appendChild(el);
+}
+
 /* ---------- événements ---------- */
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-a]");
@@ -865,10 +1038,15 @@ document.addEventListener("input", (e) => {
   else if (k === "p-alt") { ui.vue.draft.alt = numDe(e.target.value); ui.vue.draft.altAuto = false; }
   else if (k === "sync-url") ui.syncForm.url = e.target.value;
   else if (k === "sync-secret") ui.syncForm.secret = e.target.value;
+  else if (k === "fo-debut") { ui.forage.debut = e.target.value; majForageCalc(); }
+  else if (k === "fo-fin") { ui.forage.fin = e.target.value; majForageCalc(); }
+  else if (k === "fo-com") ui.forage.commentaire = e.target.value;
 });
 document.addEventListener("change", async (e) => {
   const k = e.target.dataset?.in; if (!k) return;
   if (k === "pl-quand") { ui.pluie.quand = e.target.value; rerender(); }
+  else if (k === "fo-quand") { ui.forage.quand = e.target.value; rerender(); }
+  else if (k === "photo") { const f = e.target.files[0]; e.target.value = ""; if (f) await ajouterPhoto(f); }
   else if (k === "p-alt") rerender();
   else if (k === "restaurer") {
     const f = e.target.files[0]; if (!f) return;
@@ -895,7 +1073,7 @@ async function demarrer() {
   try {
     const [mnt, mares, ruisseaux] = await Promise.all(["mnt", "mares", "ruisseaux"].map((n) => fetch("data/" + n + ".json").then((r) => r.json())));
     GEO = { mnt, mares, ruisseaux };
-    MORCEAUX = D.decouperLignes(ruisseaux, 10);
+    MORCEAUX = D.decouperLignes(ruisseaux, 5);
     await S.openDB();
     let dev = await S.getMeta("device"); if (!dev) { dev = uid("dev"); await S.setMeta("device", dev); }
     S.setDevice(dev);

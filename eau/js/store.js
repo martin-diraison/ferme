@@ -2,7 +2,7 @@
    Chaque enregistrement porte updatedAt (ms) ; en cas de conflit, le plus récent gagne.
    Les suppressions sont « douces » (deleted:true) pour pouvoir être synchronisées. */
 
-export const ENTITIES = ["points", "tournees", "obs", "arrets", "pluies"];
+export const ENTITIES = ["points", "tournees", "obs", "arrets", "pluies", "forages"];
 const DB_NAME = "eau_ferme";
 let db = null;
 
@@ -11,18 +11,17 @@ function tx(store, mode = "readonly") { return db.transaction(store, mode).objec
 function done(t) { return new Promise((res, rej) => { t.oncomplete = () => res(); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); }
 
 export async function openDB() {
-  const r = indexedDB.open(DB_NAME, 1);
+  const r = indexedDB.open(DB_NAME, 2);
   r.onupgradeneeded = () => {
     const d = r.result;
-    d.createObjectStore("rec", { keyPath: "key" });
-    d.createObjectStore("outbox", { keyPath: "key" });
-    d.createObjectStore("meta", { keyPath: "k" });
+    for (const [nom, cle] of [["rec", "key"], ["outbox", "key"], ["meta", "k"], ["photos", "id"]])
+      if (!d.objectStoreNames.contains(nom)) d.createObjectStore(nom, { keyPath: cle });
   };
   db = await req(r);
 }
 
 /* ---------- données en mémoire ---------- */
-export const DATA = { points: [], tournees: [], obs: [], arrets: [], pluies: [] };
+export const DATA = { points: [], tournees: [], obs: [], arrets: [], pluies: [], forages: [] };
 const listeners = new Set();
 export function onChange(fn) { listeners.add(fn); }
 function emit(info) { listeners.forEach((fn) => { try { fn(info); } catch (e) { console.error(e); } }); }
@@ -139,3 +138,11 @@ export async function wipeAll() {
   for (const e of ENTITIES) DATA[e] = [];
   emit({ local: true, all: true });
 }
+
+/* ---------- photos ----------
+   Le fichier (réduit) reste sur l'appareil ; envoye = false tant qu'il n'est pas dans Google Drive.
+   L'observation porte la liste { id, driveId, url } ; seule cette liste est synchronisée par le tableur. */
+export async function putPhoto(ph) { await req(tx("photos", "readwrite").put(ph)); }
+export async function getPhoto(id) { return req(tx("photos").get(id)); }
+export async function delPhoto(id) { await req(tx("photos", "readwrite").delete(id)); }
+export async function photosAEnvoyer() { return (await req(tx("photos").getAll())).filter((p) => !p.envoye); }

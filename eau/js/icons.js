@@ -17,6 +17,8 @@ const P = {
   arret: '<path d="M4 12h6"/><path d="M14 8l6 8M20 8l-6 8"/>',
   chrono: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/>',
   fleche: '<path d="M9 5l7 7-7 7"/>',
+  forage: '<path d="M3 20h18"/><path d="M10 20V8h4v12"/><path d="M12 8V3M8.5 3h7"/><path d="M12 13v3"/>',
+  photo: '<path d="M4 8h3.5l2-3h5l2 3H20v11H4Z"/><circle cx="12" cy="13" r="3.5"/>',
 };
 export function picto(nom, size = 22, extra = "") {
   return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${P[nom] || ""}</svg>`;

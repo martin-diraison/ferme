@@ -3,8 +3,9 @@
    - envoi : la boîte d'envoi n'est vidée qu'après accusé de réception du script ;
    - réception : enregistrements modifiés depuis le dernier passage (le plus récent l'emporte) ;
    - le secret voyage dans le corps de la requête (POST), jamais dans l'adresse.
-   En plus : l'onglet « Pluie_journaliere » est réécrit en entier quand la pluie change. */
-import { outboxAll, outboxAck, outboxCount, applyRemote, getMeta, setMeta, queueEverything, DATA } from "./store.js";
+   En plus : l'onglet « Pluie_journaliere » est réécrit en entier quand la pluie change ;
+   les photos en attente partent une par une vers Google Drive (action « photo » du script). */
+import { outboxAll, outboxAck, outboxCount, applyRemote, getMeta, setMeta, queueEverything, DATA, photosAEnvoyer, putPhoto, delPhoto, save } from "./store.js";
 import * as D from "./domain.js";
 
 export const SYNC = { url: "", secret: "", state: "off", pending: 0, lastOk: 0, lastErr: "", busy: false };
@@ -21,7 +22,7 @@ export async function initSync() {
   window.addEventListener("offline", () => refreshCount());
   document.addEventListener("visibilitychange", async () => {
     if (document.visibilityState === "visible") syncNow();
-    else if (configured() && (await outboxCount())) { clearTimeout(timer); syncNow(); }
+    else if (configured() && SYNC.pending) { clearTimeout(timer); syncNow(); }
   });
   setInterval(() => { if (document.visibilityState === "visible") syncNow(); }, 5 * 60 * 1000);
   if (configured()) syncNow();
@@ -37,7 +38,7 @@ export async function setSyncConfig(url, secret) {
 export function configured() { return !!(SYNC.url && SYNC.secret); }
 
 async function refreshCount() {
-  SYNC.pending = await outboxCount();
+  SYNC.pending = (await outboxCount()) + (await nbPhotosEnAttente());
   if (!configured()) SYNC.state = "off";
   else if (!navigator.onLine) SYNC.state = "offline";
   else if (SYNC.state !== "error") SYNC.state = SYNC.pending ? "pending" : "ok";
@@ -51,14 +52,15 @@ export function scheduleSync() {
   timer = setTimeout(() => syncNow(), 1500);
 }
 
-async function call(payload, url = SYNC.url, secret = SYNC.secret) {
+const MAJ_SCRIPT = "Le script du tableur doit être mis à jour (version eau-0.3) : voir serveur/LISEZMOI.md.";
+async function call(payload, url = SYNC.url, secret = SYNC.secret, delai = 25000) {
   const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 25000);
+  const to = setTimeout(() => ctrl.abort(), delai);
   try {
     const r = await fetch(url, { method: "POST", body: JSON.stringify(Object.assign({ secret }, payload)), signal: ctrl.signal, redirect: "follow" });
     const txt = await r.text();
     let j; try { j = JSON.parse(txt); } catch (_) { throw new Error("Réponse illisible du script (vérifiez l'adresse /exec et le déploiement « Tout le monde »)."); }
-    if (!j.ok) throw new Error(j.error === "forbidden" ? "Secret refusé par le script." : (j.error || "Erreur du script."));
+    if (!j.ok) throw new Error(j.error === "forbidden" ? "Secret refusé par le script." : j.error === "action inconnue" ? MAJ_SCRIPT : (j.error || "Erreur du script."));
     return j;
   } finally { clearTimeout(to); }
 }
@@ -74,13 +76,18 @@ export function viewOf(entity, r) {
   if (entity === "obs") {
     const p = byId("points", r.pointId) || {}, t = byId("tournees", r.tourneeId);
     return { tournee: t ? dh(t.debut) : "", date_heure: dh(r.t), point: p.nom || r.pointId, type: (D.TYPES[p.type] || {}).lib || "", altitude_m: p.alt ?? "",
-      etat: r.etat === D.IMPOSSIBLE ? "" : r.etat, libelle: D.libEtat(p.type, r.etat), hauteur_cm: r.hauteurCm ?? "", debit_L_min: r.debitLmin ?? "", commentaire: r.commentaire || "" };
+      etat: r.etat === D.IMPOSSIBLE ? "" : r.etat, libelle: D.libEtat(p.type, r.etat), hauteur_cm: r.hauteurCm ?? "", debit_L_min: r.debitLmin ?? "", commentaire: r.commentaire || "",
+      photos: (r.photos || []).map((ph) => ph.url || "(en attente d'envoi)").join(" ") };
   }
   if (entity === "arrets") {
     const t = byId("tournees", r.tourneeId);
     return { tournee: t ? dh(t.debut) : "", date_heure: dh(r.t), altitude_m: r.alt ?? "", lng: r.lng, lat: r.lat, precision_m: r.precision ?? "placé sur la carte" };
   }
   if (entity === "pluies") return { date_heure: dh(r.t), lecture_mm: r.lecture, vide_apres: r.vide ? "oui" : "non" };
+  if (entity === "forages") {
+    const c = D.testsCalcules(live("forages").filter((x) => x.id !== r.id).concat([r])).find((x) => x.id === r.id) || {};
+    return { date_heure: dh(r.t), index_debut_m3: r.indexDebut ?? "", index_fin_m3: r.indexFin ?? "", volume_m3: c.volume ?? "", repos_h: c.reposH ?? "", commentaire: r.commentaire || "" };
+  }
   return {};
 }
 function journalLignes() {
@@ -93,6 +100,8 @@ export async function syncNow({ full = false } = {}) {
   if (SYNC.busy) { again = true; return { ok: false, reason: "busy" }; }
   SYNC.busy = true; emit();
   try {
+    /* 0. photos en attente → Google Drive ; l'observation reçoit le lien (et repart dans la boîte d'envoi) */
+    await envoyerPhotos();
     /* 1. envoi, par paquets */
     let items = await outboxAll();
     while (items.length) {
@@ -100,7 +109,7 @@ export async function syncNow({ full = false } = {}) {
       const res = await call({ action: "push", ops: batch.map((it) => ({ entity: it.entity, rec: it.rec, view: viewOf(it.entity, it.rec) })) });
       const acked = new Set(res.acked || []);
       await outboxAck(batch.filter((it) => acked.has(it.key)));
-      if (acked.size < batch.length) throw new Error("Le script n'a pas confirmé tous les envois.");
+      if (acked.size < batch.length) throw new Error(batch.some((it) => it.entity === "forages") ? MAJ_SCRIPT : "Le script n'a pas confirmé tous les envois.");
       items = items.slice(150);
     }
     /* 2. réception */
@@ -132,3 +141,22 @@ export async function testSync(url, secret) {
 }
 /* Tout renvoyer (nouveau tableur, ou onglets effacés par erreur). */
 export async function toutRenvoyer() { await queueEverything(); await setMeta("sync.journal", ""); await refreshCount(); return syncNow({ full: true }); }
+
+/* ---------- photos ---------- */
+function enBase64(blob) {
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(r.error); r.readAsDataURL(blob); });
+}
+async function envoyerPhotos() {
+  for (const ph of await photosAEnvoyer()) {
+    const o = DATA.obs.find((x) => x.id === ph.obsId && !x.deleted);
+    const lien = o && (o.photos || []).find((x) => x.id === ph.id);
+    if (!lien) { if (!ph.brouillon) await delPhoto(ph.id); continue; }   // photo retirée de son observation
+    const p = DATA.points.find((x) => x.id === o.pointId) || {};
+    const res = await call({ action: "photo", id: ph.id, nom: ph.nom, mime: ph.blob.type || "image/jpeg", data: await enBase64(ph.blob),
+      description: (p.nom || "") + " · " + dh(o.t) + " · " + D.libEtat(p.type, o.etat) }, SYNC.url, SYNC.secret, 90000);
+    await putPhoto({ ...ph, envoye: true, driveId: res.fileId, url: res.url });
+    const cur = DATA.obs.find((x) => x.id === o.id);
+    await save("obs", { ...cur, photos: (cur.photos || []).map((x) => x.id === ph.id ? { ...x, driveId: res.fileId, url: res.url } : x) }, { silent: true });
+  }
+}
+export async function nbPhotosEnAttente() { return (await photosAEnvoyer()).filter((p) => !p.brouillon).length; }

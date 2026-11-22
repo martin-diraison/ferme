@@ -61,14 +61,51 @@ test("débit au seau", () => {
   assert.equal(D.debitSeau(10, 0), null);
 });
 
-test("ruisseaux colorés par le point le plus proche", () => {
-  const morceaux = D.decouperLignes(ruisseaux, 10);
-  assert.ok(morceaux.length > 100);
-  const m0 = morceaux[0].m;
-  const fc = D.colorerRuisseaux(morceaux, [{ lng: m0[0], lat: m0[1], etat: 1 }], 150);
-  assert.ok(fc.features.length > 0 && fc.features.length < morceaux.length);
+test("ruisseaux : un point colore environ 25 m de tracé (12,5 m de part et d'autre)", () => {
+  const morceaux = D.decouperLignes(ruisseaux, 5);
+  assert.ok(morceaux.length > 900);
+  // un point au milieu d'un long tronçon, décalé de ~8 m du tracé : il s'accroche au tracé
+  const m = morceaux[400].m, decale = [m[0] + 0.0001, m[1]];
+  const fc = D.colorerRuisseaux(morceaux, [{ lng: decale[0], lat: decale[1], etat: 1 }]);
+  const long = fc.features.reduce((s, f) => s + D.distanceM(f.geometry.coordinates[0], f.geometry.coordinates[1]), 0);
+  assert.ok(long >= 20 && long <= 32, "longueur colorée " + long);
   assert.ok(fc.features.every((f) => f.properties.etat === 1));
+  // trop loin du tracé (> 30 m) : rien n'est coloré
+  assert.equal(D.colorerRuisseaux(morceaux, [{ lng: m[0] + 0.002, lat: m[1] + 0.002, etat: 1 }]).features.length, 0);
   assert.equal(D.colorerRuisseaux(morceaux, []).features.length, 0);
+});
+
+test("forage : volume, repos de 24 h", () => {
+  assert.equal(D.volumeForage(1234.5, 1236.75), 2.25);
+  assert.equal(D.volumeForage(10, 9), null);
+  assert.equal(D.volumeForage(null, 9), null);
+  const h = 36e5;
+  const r = D.testsCalcules([
+    { id: "b", t: 30 * h, indexDebut: 105, indexFin: 107.5 },
+    { id: "a", t: 0, indexDebut: 100, indexFin: 103 },
+    { id: "c", t: 48 * h, indexDebut: 110, indexFin: 111 },
+    { id: "x", t: 50 * h, indexDebut: 1, indexFin: 2, deleted: true },
+  ]);
+  assert.deepEqual(r.map((x) => x.id), ["a", "b", "c"]);
+  assert.equal(r[0].reposH, null);
+  assert.equal(r[1].reposH, 30); assert.equal(r[1].reposCourt, false);
+  assert.equal(r[2].reposH, 18); assert.equal(r[2].reposCourt, true);
+  assert.equal(r[1].volume, 2.5);
+});
+
+test("forage : indice des eaux de surface avant le test", () => {
+  const j = 864e5, T = 100 * j;
+  const pts = [{ id: "m1", type: "mare" }, { id: "m2", type: "zone_humide" }, { id: "r1", type: "ruisseau" }, { id: "m3", type: "mare", actif: false }];
+  const obs = [
+    { pointId: "m1", t: T - 2 * j, etat: 3 }, { pointId: "m1", t: T - 1 * j, etat: 2 },
+    { pointId: "m2", t: T - 5 * j, etat: 1 },
+    { pointId: "m3", t: T - 1 * j, etat: 4 },        // point non suivi : ignoré
+    { pointId: "r1", t: T - 40 * j, etat: 4 },       // trop ancien
+    { pointId: "m2", t: T + 1 * j, etat: 4 },        // après le test
+    { pointId: "m1", t: T - 1 * j + 1, etat: "imp" },
+  ];
+  assert.deepEqual(D.indiceSurface(pts, obs, T, "mare"), { moy: 1.5, n: 2 });
+  assert.deepEqual(D.indiceSurface(pts, obs, T, "eau"), { moy: null, n: 0 });
 });
 
 test("pluie : veille, répartition, pluviomètre non vidé", () => {

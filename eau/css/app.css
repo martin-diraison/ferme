@@ -250,3 +250,23 @@ h1 + .voyant { margin-top: 6px; }
 .err-t { color: #a33a1c; font-weight: 700; }
 :root[data-theme="dark"] .err-t { color: #f4a77a; }
 .btn.ghost { border-color: transparent; background: transparent; margin-top: 8px; }
+
+/* forage : graphique volume / eaux de surface */
+.graphe .g-grille { stroke: var(--line); stroke-width: 1; }
+.graphe .g-mares { stroke: var(--sauge); stroke-width: 2.5; } .graphe .g-mares.pt { fill: var(--sauge); stroke: var(--card); stroke-width: 1.5; }
+.graphe .g-ruis { stroke: var(--acc); stroke-width: 2.5; stroke-dasharray: 5 3; } .graphe .g-ruis.pt { fill: var(--acc); stroke: var(--card); stroke-width: 1.5; stroke-dasharray: none; }
+.leg-l i.l-mares { border-color: var(--sauge) !important; } .leg-l i.l-ruis { border-color: var(--acc) !important; border-top-style: dashed !important; }
+/* photos */
+.vignettes { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
+.vig { position: relative; }
+.vig-b { width: 84px; height: 84px; padding: 0; border: 2px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card2); position: relative; display: block; }
+.vig-b img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vig-b img:not([src]) { visibility: hidden; }
+.vig-b span { position: absolute; left: 0; right: 0; bottom: 0; font-size: 11px; font-weight: 800; background: rgba(0,0,0,.55); color: #fff; padding: 2px 4px; text-align: center; }
+.vig-b.distante::before { content: "Photo dans Drive"; position: absolute; inset: 0 0 18px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: var(--muted); text-align: center; padding: 4px; }
+.vig-x { position: absolute; top: -8px; right: -8px; width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--card); background: var(--ink); color: var(--bg); font-weight: 800; }
+.photo-plein { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.92); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+.photo-plein img { max-width: 100%; max-height: calc(100% - 80px); object-fit: contain; border-radius: 8px; }
+.photo-plein .row2 { width: 100%; max-width: 420px; }
+.photo-plein a.btn { display: flex; align-items: center; justify-content: center; text-decoration: none; }
+.tab span { font-size: 12px; }

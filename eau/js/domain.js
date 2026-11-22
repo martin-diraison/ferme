@@ -189,10 +189,13 @@ export function debitSeau(volumeL, secondes) {
 }
 
 /* ---------- Ruisseaux colorés (option C) ----------
-   Les tracés du SIG sont découpés en morceaux d'environ `pas` mètres ; chaque morceau prend
-   l'état du point de ruisseau/source le plus proche (à moins de `portee` m, 50 m par défaut). Au-delà : pas coloré. */
+   Les tracés du SIG sont découpés en morceaux d'environ `pas` mètres. Chaque point de ruisseau/source
+   est d'abord accroché au tracé (endroit le plus proche, à moins de ACCROCHE_MAX m) ; il colore ensuite
+   les morceaux situés à moins de PORTEE_RUISSEAU m de cet endroit, soit environ 25 m de ruisseau
+   (12,5 m de part et d'autre). Si deux points se partagent un morceau, le plus proche l'emporte. */
+export const PORTEE_RUISSEAU = 12.5, ACCROCHE_MAX = 30;
 function interp(a, b, f) { return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]; }
-export function decouperLignes(lignes, pas = 10) {
+export function decouperLignes(lignes, pas = 5) {
   const out = [];
   for (const f of lignes.features) {
     const lines = f.geometry.type === "LineString" ? [f.geometry.coordinates] : f.geometry.coordinates;
@@ -206,18 +209,52 @@ export function decouperLignes(lignes, pas = 10) {
   }
   return out;
 }
-export function colorerRuisseaux(morceaux, pointsEtat, portee = 50) {
+export function accrocher(morceaux, pos, accroche = ACCROCHE_MAX) {
+  let best = null, bd = accroche;
+  for (const s of morceaux) { const d = distanceM(s.m, pos); if (d < bd) { bd = d; best = s.m; } }
+  return best;
+}
+export function colorerRuisseaux(morceaux, pointsEtat, portee = PORTEE_RUISSEAU, accroche = ACCROCHE_MAX) {
   const feats = [];
-  if (!pointsEtat.length) return { type: "FeatureCollection", features: feats };
+  const ancres = [];
+  for (const p of pointsEtat) { const a = accrocher(morceaux, [p.lng, p.lat], accroche); if (a) ancres.push({ pos: a, etat: p.etat }); }
+  if (!ancres.length) return { type: "FeatureCollection", features: feats };
   for (const s of morceaux) {
     let best = null, bd = portee;
-    for (const p of pointsEtat) {
-      const d = distanceM(s.m, [p.lng, p.lat]);
-      if (d < bd) { bd = d; best = p; }
+    for (const an of ancres) {
+      const d = distanceM(s.m, an.pos);
+      if (d <= bd) { bd = d; best = an; }
     }
     if (best) feats.push({ type: "Feature", properties: { etat: best.etat }, geometry: { type: "LineString", coordinates: [s.a, s.b] } });
   }
   return { type: "FeatureCollection", features: feats };
+}
+
+/* ---------- Forage ----------
+   Pas de sonde de niveau : on tire l'eau jusqu'à ce qu'elle s'épuise d'elle-même et on lit le compteur
+   (m³) au début et à la fin. Au moins REPOS_MIN_H heures entre deux tests. Pour juger si les eaux de
+   surface peuvent remplacer une sonde, chaque test est rapproché de l'état des mares et des ruisseaux
+   (dernier relevé de chaque point, de moins de AGE_MAX_J jours avant le test) et de la pluie des 30 jours. */
+export const REPOS_MIN_H = 24, AGE_MAX_J = 21;
+export function volumeForage(debut, fin) {
+  if (typeof debut !== "number" || typeof fin !== "number" || !isFinite(debut) || !isFinite(fin) || fin < debut) return null;
+  return Math.round((fin - debut) * 1000) / 1000;
+}
+export function testsCalcules(tests) {
+  const tri = tests.filter((x) => !x.deleted).slice().sort((a, b) => a.t - b.t);
+  return tri.map((x, i) => {
+    const prec = i ? tri[i - 1] : null;
+    const reposH = prec ? Math.round(((x.t - prec.t) / 36e5) * 10) / 10 : null;
+    return { ...x, volume: volumeForage(x.indexDebut, x.indexFin), reposH, reposCourt: reposH !== null && reposH < REPOS_MIN_H };
+  });
+}
+/* Moyenne des derniers états connus avant l'instant t, pour une famille d'échelle ("mare" ou "eau"). */
+export function indiceSurface(points, obs, t, famille, ageMaxJ = AGE_MAX_J) {
+  const ids = new Set(points.filter((p) => p.actif !== false && (TYPES[p.type] || TYPES.mare).echelle === famille).map((p) => p.id));
+  const dern = derniersEtats(obs.filter((o) => ids.has(o.pointId) && typeof o.etat === "number" && o.t >= t - ageMaxJ * 864e5), t);
+  if (!dern.size) return { moy: null, n: 0 };
+  let s = 0; for (const o of dern.values()) s += o.etat;
+  return { moy: Math.round((s / dern.size) * 10) / 10, n: dern.size };
 }
 
 /* ---------- Pluie ----------
