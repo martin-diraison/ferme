@@ -93,7 +93,7 @@ h2 { margin: 24px 2px 8px; font-size: 18px; font-weight: 800; display: flex; ali
 .pas.e0, .pas.e3, .pas.e4 { text-shadow: 0 0 3px rgba(0,0,0,.5); }
 
 /* écrans carte */
-.carte-ecran { position: relative; height: calc(100dvh - var(--tabs)); overflow: hidden; }
+.carte-ecran { position: relative; height: calc(100vh - var(--tabs)); overflow: hidden; }
 .map-slot { position: relative; background: #e9e0cf; }
 .map-slot.full { position: absolute; inset: 0; }
 .mapbox { position: absolute; inset: 0; }
@@ -116,7 +116,7 @@ h2 { margin: 24px 2px 8px; font-size: 18px; font-weight: 800; display: flex; ali
 .frise-t .ronde { background: #d67f48; border: 0; color: #2e1708; }
 .frise-c { flex: 1; text-align: center; } .frise-c b { display: block; color: #ffc6a5; } .frise-c span { font-size: 12px; color: #dcd3c4; }
 .leg-btn { align-self: flex-start; min-height: 44px; border-radius: 999px; border: 0; background: rgba(249,244,237,.95); color: #201e1d; font-weight: 800; padding: 0 16px; box-shadow: 0 3px 10px rgba(0,0,0,.25); }
-.leg { background: rgba(249,244,237,.97); color: #201e1d; border-radius: 16px; padding: 10px 12px; font-size: 14px; max-height: 45dvh; overflow: auto; }
+.leg { background: rgba(249,244,237,.97); color: #201e1d; border-radius: 16px; padding: 10px 12px; font-size: 14px; max-height: 45vh; max-height: 45dvh; overflow: auto; }
 .leg table { border-collapse: collapse; width: 100%; } .leg th { text-align: left; font-size: 12px; } .leg td { padding: 3px 4px; }
 .leg-l { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 14px; margin-top: 8px; }
 .leg-l i { display: inline-block; width: 22px; height: 0; border-top: 3px solid; }
@@ -167,7 +167,7 @@ i.b-mes { background: var(--b-mes); } i.b-rep { background: var(--b-rep); } i.b-
 .mini-barre i { display: block; height: 100%; }
 .arrets li { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px 4px 4px 10px; }
 .arrets .btn { min-height: 44px; width: auto; }
-.tournee-carte { display: flex; flex-direction: column; height: calc(100dvh - var(--tabs)); position: relative; }
+.tournee-carte { display: flex; flex-direction: column; height: calc(100vh - var(--tabs)); position: relative; }
 .tournee-carte .t-head { padding: 12px 16px 0; }
 .tournee-carte .t-head h1 { font-size: 21px; }
 .tournee-carte .seg { margin: 8px 0; }
@@ -199,7 +199,7 @@ i.b-mes { background: var(--b-mes); } i.b-rep { background: var(--b-rep); } i.b-
 .resultat { margin-top: 10px; background: var(--sauge-soft); border-radius: 12px; padding: 10px 12px; font-size: 17px; }
 .barre-bas { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; display: flex; gap: 10px; padding: 10px 16px calc(14px + env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--line); max-width: 760px; margin: 0 auto; }
 .barre-bas.carte { background: var(--panel); border: 0; }
-.carte-ecran.plein { height: 100dvh; }
+.carte-ecran.plein { height: 100vh; }
 .carte-ecran.plein .maplibregl-ctrl-bottom-right { bottom: 80px; }
 .barre-bas .btn:not(.grow) { flex: 0 0 auto; }
 
@@ -270,3 +270,12 @@ h1 + .voyant { margin-top: 6px; }
 .photo-plein .row2 { width: 100%; max-width: 420px; }
 .photo-plein a.btn { display: flex; align-items: center; justify-content: center; text-decoration: none; }
 .tab span { font-size: 12px; }
+
+/* Hauteur d'écran : 100vh partout ; dvh (barre d'adresse déduite) seulement si le navigateur le connaît.
+   Ne pas écrire « height: calc(100dvh - var(--tabs)) » en simple ligne de secours : avec var(), un navigateur
+   qui ignore dvh n'applique pas la ligne précédente et la carte retombe à 0 px (cas Samsung Internet ancien). */
+@supports (height: 100dvh) {
+  .carte-ecran { height: calc(100dvh - var(--tabs)); }
+  .tournee-carte { height: calc(100dvh - var(--tabs)); }
+  .carte-ecran.plein { height: 100dvh; }
+}

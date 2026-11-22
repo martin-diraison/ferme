@@ -1,4 +1,4 @@
-# Eau de la ferme — v0.3.0
+# Eau de la ferme — v0.3.1
 
 Suivi de l'eau de la ferme : tournées des points d'eau (mares, sources, ruisseaux) avec photos, arrêts de l'écoulement,
 relevés du pluviomètre, tests du forage. Même base technique que l'appli pâturage v9 : modules JS sans compilation,

@@ -8,7 +8,7 @@ import { esc, uid } from "./util.js";
 import { picto } from "./icons.js";
 import * as Y from "./sync.js";
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.3.1";
 const app = document.getElementById("app");
 let GEO = null, MORCEAUX = [];
 

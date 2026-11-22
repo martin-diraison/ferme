@@ -3,7 +3,7 @@
      Changer CACHE à chaque nouvelle version : tout est retéléchargé d'un coup, puis la page se recharge.
    - Tuiles de la photo aérienne IGN et polices de la carte : gardées au fil des consultations
      (cache séparé, conservé d'une version à l'autre), pour revoir la carte hors réseau. */
-const CACHE = "eau-ferme-0.3.0";
+const CACHE = "eau-ferme-0.3.1";
 const TUILES = "eau-ferme-tuiles";
 const SHELL = [
   "./", "index.html", "manifest.webmanifest", "css/app.css", "icon-192.png", "icon-512.png",
