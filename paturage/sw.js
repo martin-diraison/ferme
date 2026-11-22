@@ -4,7 +4,7 @@
      se recharge : jamais de mélange d'anciens et de nouveaux fichiers, même avec un réseau faible.
    - Page d'accueil : réseau d'abord (3 s), copie locale sinon.
    Les échanges avec le script Google ne passent jamais par ici. */
-const CACHE = "paturage-v9.2.3";
+const CACHE = "paturage-v9.3.0";
 const SHELL = [
   "./", "index.html", "manifest.webmanifest", "css/app.css", "data/carte.json", "Fond.png", "icon-192.png", "icon-512.png",
   "js/app.js", "js/util.js", "js/geo.js", "js/domain.js", "js/migrate.js", "js/store.js", "js/sync.js", "js/exports.js",

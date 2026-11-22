@@ -160,8 +160,8 @@ details.opts summary { cursor: pointer; min-height: 44px; display: flex; align-i
 
 /* Navigation */
 nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--card); border-top: 1px solid var(--line); }
-nav.tabs .in { max-width: 760px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); height: 70px; }
-nav.tabs button { border: none; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 13px; font-weight: 700; color: var(--muted); padding-bottom: env(safe-area-inset-bottom, 0px); }
+nav.tabs .in { max-width: 760px; margin: 0 auto; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); height: 70px; }
+nav.tabs button { border: none; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 12px; font-weight: 700; color: var(--muted); padding: 0 0 env(safe-area-inset-bottom, 0px); min-width: 0; white-space: nowrap; }
 nav.tabs button.on { color: var(--primary); }
 
 /* Feuilles (panneaux du bas) */
@@ -204,3 +204,21 @@ table.tbl td.r, table.tbl th.r { text-align: right; }
 .colorpick { position: relative; cursor: pointer; width: 48px; height: 48px; padding: 0; border: 2px dashed var(--field); border-radius: 999px; background: var(--card); }
 .padhist { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: var(--line2); font-size: 14px; }
 .padhist div + div { margin-top: 2px; }
+
+/* Foin : onglet bilan + bloc de la fiche troupeau */
+.hay-kpi { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
+.hay-big { font-size: 40px; font-weight: 700; line-height: 1; color: var(--hay-text); font-variant-numeric: tabular-nums; }
+.hay-split { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line2); margin-top: 12px; }
+.hay-chart text { fill: var(--muted); font-size: 11px; font-family: inherit; }
+.hay-chart text.tot { fill: var(--ink); font-weight: 700; }
+.hay-bar { display: block; height: 6px; border-radius: 3px; background: var(--line2); margin-top: 6px; overflow: hidden; }
+.hay-bar > span { display: block; height: 100%; border-radius: 3px; }
+.hay-count { font-size: 20px; font-weight: 700; color: var(--hay-text); min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
+.list > .li.hay-on { background: var(--hay-soft); }
+.hay-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; text-align: center; }
+.hay-weeks { display: flex; align-items: flex-end; gap: 5px; height: 66px; margin-top: 14px; border-bottom: 1px solid var(--line); }
+.hay-weeks > div { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.hay-weeks span { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.hay-weeks i { display: block; width: 100%; border-radius: 3px 3px 0 0; }
+.hay-wlab { display: flex; gap: 5px; margin-top: 3px; }
+.hay-wlab span { flex: 1; text-align: center; font-size: 11px; color: var(--muted); }

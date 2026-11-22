@@ -190,3 +190,26 @@ export function convertV8Movements(v8moves, aliases = {}) {
   }
   return { moves, orphanOuts, redundantIns, absorbedOuts };
 }
+
+/* ---------- Foin : périodes d'affouragement ----------
+   Pas de saison fixe (le foin peut tomber l'été puis de nouveau l'hiver) : une période de foin
+   regroupe des apports qui se suivent ; HAY_GAP jours ou plus sans aucun apport la terminent.
+   Renvoie les périodes de la plus récente à la plus ancienne :
+   { from, to, n, live } — live = période en cours (dernier apport il y a moins de HAY_GAP jours). */
+export const HAY_GAP = 21;
+export function hayPeriods(foins, today, gap = HAY_GAP) {
+  const ds = [...new Set(foins.map((f) => f.date))].sort(), eps = [];
+  for (const d of ds) {
+    const e = eps[eps.length - 1];
+    if (e && daysBetween(e.to, d) < gap) e.to = d; else eps.push({ from: d, to: d, n: 0, live: false });
+  }
+  for (const f of foins) { const e = eps.find((x) => f.date >= x.from && f.date <= x.to); if (e) e.n++; }
+  for (const e of eps) e.live = daysBetween(e.to, today) < gap && e.to <= today;
+  return eps.reverse();
+}
+/* Round-ballers par semaine, en ne comptant que les jours des périodes de foin
+   (les pauses au pré ne font pas baisser la moyenne). null s'il n'y a aucun apport. */
+export function hayRate(foins, today, gap = HAY_GAP) {
+  const days = hayPeriods(foins, today, gap).reduce((t, e) => t + daysBetween(e.from, e.live ? today : e.to) + 1, 0);
+  return days ? foins.length / days * 7 : null;
+}

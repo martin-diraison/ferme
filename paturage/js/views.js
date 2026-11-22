@@ -2,7 +2,7 @@
    Les interactions passent par data-a="action" (clic) et data-in="champ" (saisie), gérés dans app.js. */
 import { esc, fmtShort, fmtLong, fmtNum, daysBetween, addDays, MOIS, MOIS_COURT, plural, normText, parseISO } from "./util.js";
 import { GEO, padLabel, parcelLabel } from "./geo.js";
-import { OUT, lotTimeline, lotLocation, restClass, lotUGB, compForDate, ugbOf, padHistory } from "./domain.js";
+import { OUT, lotTimeline, lotLocation, restClass, lotUGB, compForDate, ugbOf, padHistory, hayPeriods, hayRate, HAY_GAP } from "./domain.js";
 import { mapHTML } from "./mapsvg.js";
 import { icon } from "./icons.js";
 import { LOT_COLORS } from "./migrate.js";
@@ -332,6 +332,105 @@ export function viewCal(S, C) {
   return h + `</div>`;
 }
 
+/* =================== FOIN =================== */
+/* Bilan des round-ballers apportés. Pas de saison fixe : périodes de foin repérées
+   automatiquement (domain.hayPeriods), ou 30 jours / 12 mois / année civile. */
+const fmtRate = (r) => (r === null ? "–" : fmtNum(r, 1).replace(/,0$/, ""));
+const foinType = (f) => (f.type === "enrubanne" ? "Enrubanné" : "Foin");
+export function viewFoin(S, C) {
+  const all = C.D.foins, eps = hayPeriods(all, C.today);
+  let h = `<div class="screen"><h1>Foin</h1><div class="sub">Round-ballers apportés</div>`;
+  if (!all.length) return h + `<div class="notice" style="margin-top:14px">Aucun apport de foin enregistré. Le bouton « Foin » de chaque troupeau (onglet Troupeaux) en ajoute un.</div></div>`;
+  const years = [...new Set(all.map((f) => +f.date.slice(0, 4)))].sort((a, b) => b - a);
+  const P = foinPeriod(S.foin.per, eps, C.today) || foinPeriod(eps[0] && eps[0].live ? "cur" : "j30", eps, C.today);
+  const list = all.filter((f) => f.date >= P.from && f.date <= P.to);
+  const days = daysBetween(P.from, P.to) + 1, monthly = days > 120;
+  const chips = (eps[0] && eps[0].live ? [["cur", "Période en cours"]] : []).concat([["j30", "30 jours"], ["m12", "12 mois"]], years.map((y) => ["y" + y, String(y)]));
+  const oldOn = P.key.startsWith("ep:");
+  h += `<div class="chips scroll" style="margin-top:12px" data-hscroll="foin-per">` + chips.map(([k, t]) => `<button type="button" class="chip${P.key === k ? " on" : ""}" data-a="foin-per" data-v="${k}">${t}</button>`).join("")
+    + (oldOn ? `<button type="button" class="chip on">Période du ${esc(fmtShort(P.from))}</button>` : "") + `</div>`;
+  h += `<div class="sub" style="margin:6px 2px 10px">Du ${esc(fmtShort(P.from, P.from.slice(0, 4) !== P.to.slice(0, 4)))} au ${esc(fmtShort(P.to, true))} · ${plural(days, "jour", "jours")}</div>`;
+  const nf = list.filter((f) => f.type !== "enrubanne").length, ne = list.length - nf;
+  const fy = [...new Set(list.map((f) => f.year))].sort((a, b) => b - a);
+  h += `<div class="card"><div class="hay-kpi"><div class="hay-big">${list.length}</div><div><b>round-baller${list.length > 1 ? "s" : ""}</b><div class="small muted">${list.length ? "≈ " + fmtRate(hayRate(list, C.today)) + " par semaine" + (P.period ? "" : " pendant les périodes de foin") : "Aucun apport sur cette période"}</div></div></div>`;
+  if (list.length) h += `<div class="hay-split"><span style="width:${(nf / list.length * 100).toFixed(1)}%;background:#C08A2B"></span><span style="width:${(ne / list.length * 100).toFixed(1)}%;background:#2F7D32"></span></div>
+      <div class="legend" style="margin-top:8px"><span><i style="background:#C08A2B"></i>Foin ${nf}</span><span><i style="background:#2F7D32"></i>Enrubanné ${ne}</span></div>
+      <div class="small muted" style="margin-top:8px">${fy.map((y) => "Fauche " + esc(y) + " : <b style=\"color:var(--ink)\">" + list.filter((f) => f.year === y).length + "</b>").join(" · ")}</div>`;
+  h += `</div>`;
+  const lotsIn = C.D.lots.filter((l) => list.some((f) => f.lotId === l.id));
+  if (list.length) h += `<h2>Par ${monthly ? "mois" : "semaine"}</h2><div class="card" style="padding:10px 10px 6px">${foinChart(list, P.from, P.to, monthly, C.D.lots)}<div class="legend">${lotsIn.map((l) => `<span><i style="background:${esc(l.color)}"></i>${esc(l.name)}</span>`).join("")}</div></div>`;
+  /* par troupeau : ceux qui ont eu du foin sur la période, puis les autres troupeaux actifs */
+  const rows = C.D.lots.filter((l) => !l.archived || list.some((f) => f.lotId === l.id))
+    .map((l) => ({ l, mine: list.filter((f) => f.lotId === l.id).sort((a, b) => (a.date < b.date ? 1 : -1)) }))
+    .sort((a, b) => b.mine.length - a.mine.length);
+  const max = Math.max(1, ...rows.map((r) => r.mine.length));
+  h += `<h2>Par troupeau</h2><div class="list">` + rows.map(({ l, mine }) => {
+    const t2 = mine.length ? "≈ " + fmtRate(hayRate(mine, C.today)) + " par semaine · dernier " + dateWords(mine[0].date, C.today) : "Aucun apport sur cette période";
+    return `<button type="button" class="li" data-a="lot-open" data-lot="${esc(l.id)}" data-back="foin">${dot(l.color)}<span class="grow"><span class="t1">${esc(l.name)}</span><span class="t2">${esc(t2)}</span>${mine.length ? `<span class="hay-bar"><span style="width:${(mine.length / max * 100).toFixed(1)}%;background:${esc(l.color)}"></span></span>` : ""}</span><span class="hay-count">${mine.length || "–"}</span></button>`;
+  }).join("") + `</div>`;
+  if (eps.length) {
+    h += `<h2>Périodes de foin</h2><div class="list">` + eps.map((e) => {
+      const k = e.live ? "cur" : "ep:" + e.from, names = C.D.lots.filter((l) => all.some((f) => f.lotId === l.id && f.date >= e.from && f.date <= e.to)).map((l) => l.name);
+      return `<button type="button" class="li${P.key === k ? " hay-on" : ""}" data-a="foin-per" data-v="${esc(k)}"><span class="grow"><span class="t1">${e.live ? "En cours, depuis le " + esc(fmtShort(e.from, true)) : "Du " + esc(fmtShort(e.from, e.from.slice(0, 4) !== e.to.slice(0, 4))) + " au " + esc(fmtShort(e.to, true))}</span><span class="t2">${plural(daysBetween(e.from, e.live ? C.today : e.to) + 1, "jour", "jours")} · ${esc(names.join(", "))}</span></span><span class="hay-count">${e.n}</span></button>`;
+    }).join("") + `</div><div class="small muted" style="margin:6px 2px 0">Repérées automatiquement : ${HAY_GAP / 7} semaines sans foin terminent une période.</div>`;
+  }
+  h += `<button type="button" class="btn block" style="margin-top:14px" data-a="foin-journal">Voir et corriger les saisies (Journal)</button>`;
+  return h + `</div>`;
+}
+/* période choisie → { key, from, to, period (= période de foin) } ; null si la clé ne correspond plus à rien */
+function foinPeriod(key, eps, today) {
+  if (key === "cur") return eps[0] && eps[0].live ? { key, from: eps[0].from, to: today, period: true } : null;
+  if (key === "j30") return { key, from: addDays(today, -29), to: today };
+  if (key === "m12") return { key, from: addDays(today, -364), to: today };
+  if (/^y\d{4}$/.test(key)) { const y = key.slice(1); return { key, from: y + "-01-01", to: y + "-12-31" < today ? y + "-12-31" : today }; }
+  if (key && key.startsWith("ep:")) { const e = eps.find((x) => x.from === key.slice(3) && !x.live); return e ? { key, from: e.from, to: e.to, period: true } : null; }
+  return null;
+}
+/* barres empilées par semaine (lundi) ou par mois, couleur du troupeau */
+function foinChart(list, from, to, monthly, lots) {
+  const starts = [];
+  const nextOf = (d) => (monthly ? addDays(d.slice(0, 8) + "28", 7).slice(0, 8) + "01" : addDays(d, 7));
+  if (monthly) for (let m = from.slice(0, 8) + "01"; m <= to; m = nextOf(m)) starts.push(m);
+  else { const d = parseISO(from); for (let w = addDays(from, -((d.getDay() + 6) % 7)); w <= to; w = addDays(w, 7)) starts.push(w); }
+  const used = lots.filter((l) => list.some((f) => f.lotId === l.id));
+  const cnt = starts.map((w) => { const e = nextOf(w); return used.map((l) => list.filter((f) => f.lotId === l.id && f.date >= w && f.date < e).length); });
+  const top = Math.max(4, Math.ceil(Math.max(...cnt.map((a) => a.reduce((s, x) => s + x, 0))) / 2) * 2);
+  const W = 340, H = 156, L = 24, B = 22, T = 16, bw = (W - L) / starts.length, y = (v) => T + (H - B - T) * (1 - v / top);
+  const step = top > 12 ? Math.ceil(top / 12) * 4 : top > 8 ? 4 : 2;
+  let g = "";
+  for (let v = 0; v <= top; v += step) g += `<line x1="${L}" x2="${W}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--line)"/><text x="${L - 5}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`;
+  const every = Math.ceil(starts.length / 9);
+  starts.forEach((w, i) => {
+    const x = L + i * bw + bw * 0.15, ww = bw * 0.7; let acc = 0;
+    used.forEach((l, j) => { const n = cnt[i][j]; if (!n) return; g += `<rect x="${x.toFixed(1)}" y="${y(acc + n).toFixed(1)}" width="${ww.toFixed(1)}" height="${Math.max(1, y(acc) - y(acc + n) - 1).toFixed(1)}" rx="2" fill="${esc(l.color)}"/>`; acc += n; });
+    if (acc && bw >= 24) g += `<text x="${(x + ww / 2).toFixed(1)}" y="${(y(acc) - 3).toFixed(1)}" text-anchor="middle" class="tot">${acc}</text>`;
+    if (i % every === 0) { const d = parseISO(w); g += `<text x="${(x + ww / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${monthly ? MOIS_COURT[d.getMonth()].charAt(0).toUpperCase() : d.getDate() + "/" + (d.getMonth() + 1)}</text>`; }
+  });
+  return `<svg class="hay-chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Round-ballers par ${monthly ? "mois" : "semaine"}">${g}</svg>`;
+}
+
+/* bloc Foin de la fiche troupeau */
+function lotFoinHTML(C, l) {
+  const mine = C.D.foins.filter((f) => f.lotId === l.id).sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : (b.createdAt || 0) - (a.createdAt || 0)));
+  let h = `<h2 style="color:var(--hay-text)">Foin</h2><div class="card">`;
+  if (!mine.length) return h + `<div class="muted">Aucun apport de foin enregistré pour ce troupeau.</div></div>`;
+  const d = parseISO(C.today), mon = addDays(C.today, -((d.getDay() + 6) % 7));
+  const eps = hayPeriods(mine, C.today), cur = eps[0] && eps[0].live ? eps[0] : null;
+  const inCur = cur ? mine.filter((f) => f.date >= cur.from) : [];
+  const kpi = (v, t) => `<div><div class="hay-big" style="font-size:30px">${v}</div><div class="small muted">${t}</div></div>`;
+  h += `<div class="hay-kpis">${kpi(mine.filter((f) => f.date >= mon && f.date <= C.today).length, "cette semaine")}${kpi(inCur.length, cur ? "depuis le " + esc(fmtShort(cur.from)) : "pas de période en cours")}${kpi(cur ? fmtRate(hayRate(inCur, C.today)) : "–", "par semaine")}</div>`;
+  const weeks = []; for (let i = 7; i >= 0; i--) weeks.push(addDays(mon, -7 * i));
+  const cnt = weeks.map((w) => mine.filter((f) => f.date >= w && f.date < addDays(w, 7)).length), mx = Math.max(3, ...cnt);
+  h += `<div class="hay-weeks">${cnt.map((n, i) => `<div><span>${n || ""}</span><i style="height:${(n / mx * 44).toFixed(1)}px;background:${esc(l.color)};opacity:${i === 7 ? 1 : 0.7}"></i></div>`).join("")}</div>
+    <div class="hay-wlab">${weeks.map((w, i) => `<span>${i % 2 === 1 ? parseISO(w).getDate() + "/" + (parseISO(w).getMonth() + 1) : ""}</span>`).join("")}</div>
+    <div class="small muted" style="margin-top:6px">8 dernières semaines (du lundi au dimanche)</div>`;
+  const old = eps.filter((e) => !e.live);
+  if (old.length) h += `<div class="small" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)"><b>Périodes précédentes</b>${old.slice(0, 6).map((e) => `<div class="muted">Du ${esc(fmtShort(e.from, e.from.slice(0, 4) !== e.to.slice(0, 4)))} au ${esc(fmtShort(e.to, true))} · ${plural(e.n, "round-baller", "round-ballers")}</div>`).join("")}</div>`;
+  h += `</div><div class="list" style="margin-top:10px">` + mine.slice(0, 5).map((f) => `<button type="button" class="li" data-a="edit-foin" data-id="${esc(f.id)}"><span class="grow"><span class="t1">${foinType(f)}</span><span class="t2">${esc(fmtLong(f.date))} · fauche ${esc(f.year)}</span></span><span class="small muted">Corriger</span></button>`).join("") + `</div>`;
+  if (mine.length > 5) h += `<button type="button" class="btn block" style="margin-top:10px" data-a="foin-journal" data-lot="${esc(l.id)}">Tous les apports de ${esc(l.name)} (${mine.length})</button>`;
+  return h;
+}
+
 /* =================== PLUS =================== */
 export function viewPlus(S, C) {
   if (S.sub === "lots") return viewLots(S, C);
@@ -351,7 +450,7 @@ export function viewPlus(S, C) {
     ${item("sub-exports", "Exports et sauvegarde", "CSV, ZIP, sauvegarde JSON, restauration")}
     ${item("sub-settings", "Réglages", "Objectif de repos " + C.settings.restTarget + " j · catégories UGB · thème")}
     ${item("sub-mapcfg", "Parcelles et paddocks", GEO.parcels.length + " parcelles · " + GEO.pads.length + " paddocks · " + fmtNum(GEO.pads.reduce((s, p) => s + p.area, 0), 1) + " ha")}
-  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.2.3 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
+  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.3.0 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
 }
 const subHead = (title, back = "plus-back") => `<div class="row" style="flex-wrap:nowrap;gap:4px;margin:-8px 0 8px -10px"><button type="button" class="iconbtn" data-a="${back}" aria-label="Retour">${icon("back", 24)}</button><h1 style="font-size:24px">${title}</h1></div>`;
 
@@ -378,6 +477,7 @@ function viewLot(S, C) {
     <div class="field"><span>Couleur</span><div class="chips">${LOT_COLORS.map((c) => `<button type="button" class="chip" style="min-width:48px;padding:0;background:${c};border-color:${c === l.color ? "var(--ink)" : c};${c === l.color ? "box-shadow:0 0 0 2px var(--card) inset" : ""}" data-a="lot-color" data-lot="${esc(l.id)}" data-c="${c}" aria-label="Couleur ${c}"></button>`).join("")}<label class="chip colorpick" style="${LOT_COLORS.includes(l.color) ? "" : `background:${esc(l.color)};border:2px solid var(--ink)`}" title="Autre couleur">${LOT_COLORS.includes(l.color) ? "+" : ""}<input type="color" value="${esc(l.color)}" data-in="lot-color-custom" data-lot="${esc(l.id)}" aria-label="Autre couleur" style="position:absolute;opacity:0;width:1px;height:1px"></label></div></div>
     <div class="row" style="margin-top:12px"><button type="button" class="btn" data-a="lot-archive" data-lot="${esc(l.id)}">${l.archived ? "Réactiver" : "Archiver"}</button><button type="button" class="btn danger" data-a="lot-delete" data-lot="${esc(l.id)}">Supprimer…</button></div>
     <div class="small muted" style="margin-top:6px">Archiver masque le troupeau sans effacer son historique.</div></div>`;
+  h += lotFoinHTML(C, l);
   h += `<h2>Composition</h2><div class="card"><div class="row"><label class="field" style="margin-top:0;flex:1 1 160px"><span>Date d’effet</span><input class="input" type="date" value="${esc(E.eff)}" data-in="comp-eff"></label>
     <div style="flex:1 1 120px"><div class="small muted">UGB</div><div style="font-size:22px;font-weight:700">${fmtNum(ugbOf(draft, cats), 2)}</div></div></div>
     <table class="tbl" style="margin-top:10px"><thead><tr><th>Catégorie</th><th class="r">Coef.</th><th class="r">Effectif</th></tr></thead><tbody>`;
@@ -484,7 +584,7 @@ function viewMapCfg(S, C) {
 /* =================== NAVIGATION, FEUILLES, TOAST =================== */
 export function viewNav(S) {
   const b = (scr, ic, t) => `<button type="button" class="${S.screen === scr ? "on" : ""}" data-a="nav" data-v="${scr}"${S.screen === scr ? ' aria-current="page"' : ""}>${icon(ic, 26)}${t}</button>`;
-  return `<nav class="tabs" aria-label="Navigation principale"><div class="in">${b("home", "herd", "Troupeaux")}${b("carte", "map", "Carte")}${b("cal", "calLines", "Calendrier")}${b("plus", "menu", "Plus")}</div></nav>`;
+  return `<nav class="tabs" aria-label="Navigation principale"><div class="in">${b("home", "herd", "Troupeaux")}${b("carte", "map", "Carte")}${b("cal", "calLines", "Calendrier")}${b("foin", "bale", "Foin")}${b("plus", "menu", "Plus")}</div></nav>`;
 }
 
 export function viewSheet(S, C) {

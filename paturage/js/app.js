@@ -6,11 +6,11 @@ import * as store from "./store.js";
 import { SYNC, initSync, scheduleSync, syncNow, setSyncConfig, testSync, onSync, configured } from "./sync.js";
 import { fromV8, isV8, readV8FromThisBrowser, LOT_COLORS } from "./migrate.js";
 import * as X from "./exports.js";
-import { viewHome, viewMove, viewCarte, viewCal, viewPlus, viewNav, viewSheet, viewToast, moveMapH, carteMapH } from "./views.js";
+import { viewHome, viewMove, viewCarte, viewCal, viewFoin, viewPlus, viewNav, viewSheet, viewToast, moveMapH, carteMapH } from "./views.js";
 import { parcelView, padScreenSize, MIN_TAP_PX } from "./mapsvg.js";
 import { attachMapGestures } from "./mapgesture.js";
 
-const VERSION = "9.2.3";
+const VERSION = "9.3.0";
 const app = document.getElementById("app");
 let BASE_CARTE = null;
 const SET = { restTarget: 45, pressureMax: 2, longStay: 10, theme: "light" };
@@ -21,6 +21,7 @@ const S = {
   cal: { lotId: null, year: null, sel: null, fs: false },
   lotEdit: null, newCat: { name: "", ugb: "" },
   journal: { kind: "moves", lotId: "", from: "", to: "", limit: 100 },
+  foin: { per: null }, /* période de l'onglet Foin : cur | j30 | m12 | yAAAA | ep:AAAA-MM-JJ (null = par défaut) */
   syncForm: { url: "", secret: "" }, syncMsg: "", restoreMsg: "", mapMsg: "", exYear: new Date().getFullYear(),
   files: {}, sheet: null, sheetBack: null, toast: null
 };
@@ -56,6 +57,7 @@ function render() {
   if (S.screen === "move" && S.move) main = viewMove(S, C);
   else if (S.screen === "carte") main = viewCarte(S, C);
   else if (S.screen === "cal") main = viewCal(S, C);
+  else if (S.screen === "foin") main = viewFoin(S, C);
   else if (S.screen === "plus") main = viewPlus(S, C);
   else main = viewHome(S, C);
   const nav = S.screen === "move" || (S.screen === "cal" && S.cal.fs) ? "" : viewNav(S);
@@ -186,6 +188,8 @@ const A = {
   "cal-locate": (d) => { const p = GEO.byId[d.id]; if (!p) return; S.cal.fs = false; S.carte.vb = parcelView(p.parcel); S.carte.pad = p.id; go("carte"); },
 
   /* --- Foin --- */
+  "foin-per": (d) => { S.foin.per = d.v; render(); },
+  "foin-journal": (d) => { S.journal = { kind: "foins", lotId: d.lot || "", from: "", to: "", limit: 100 }; go("plus", "journal"); },
   "foin-open": (d) => { const p = lastFoin(d.lot); S.sheet = { type: "foin", lotId: d.lot, ftype: p ? p.type : null, year: p ? p.year : new Date().getFullYear(), date: C.today }; render(); },
   "foin-quick": async (d) => {
     const lot = lotById(d.lot); if (!lot) return;
@@ -263,7 +267,7 @@ const A = {
     toast("Troupeau « " + name + " » créé");
   },
   "lot-open": (d) => { openLot(d.lot, C.today); S.lotBack = d.back || "lots"; go("plus", "lot"); },
-  "lot-back": () => { if (S.lotBack === "home") go("home"); else go("plus", "lots"); },
+  "lot-back": () => { if (S.lotBack === "home") go("home"); else if (S.lotBack === "foin") go("foin"); else go("plus", "lots"); },
   "lot-color": async (d) => { const l = lotById(d.lot); l.color = d.c; await store.save("lots", l); },
   "lot-archive": async (d) => {
     const l = lotById(d.lot); if (!l) return;

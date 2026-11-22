@@ -1,7 +1,7 @@
 /* Tests des règles métier : node --test tests/ */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { lotTimeline, lotLocation, paddockStatus, restClass, pressureByPaddock, convertV8Movements, compForDate, ugbOf, padHistory, OUT } from "../js/domain.js";
+import { lotTimeline, lotLocation, paddockStatus, restClass, pressureByPaddock, convertV8Movements, compForDate, ugbOf, padHistory, OUT, hayPeriods, hayRate } from "../js/domain.js";
 import { fromV8 } from "../js/migrate.js";
 
 const mv = (id, lotId, date, to, createdAt = 0) => ({ id, lotId, date, to, createdAt });
@@ -125,4 +125,19 @@ test("9.2 : historique d'un paddock (ouverture, fermeture, tous troupeaux)", () 
   const moves = [mv("a", "L", "2026-05-01", "P1", 1), mv("b", "L", "2026-05-10", "P2", 2), mv("c", "M", "2026-06-01", "P1", 3), mv("d", "M", "2026-06-01", "P3", 4), mv("e", "K", "2026-07-01", "P1", 5)];
   const h = padHistory({ moves }, "P1", "2026-07-05");
   assert.deepEqual(h.map((x) => [x.lotId, x.start, x.end]), [["K", "2026-07-01", null], ["L", "2026-05-01", "2026-05-10"]]);
+});
+
+test("foin : périodes séparées par 3 semaines sans apport, rythme hors pauses", () => {
+  const fo = (date) => ({ lotId: "L", date });
+  const foins = [fo("2026-07-01"), fo("2026-07-04"), fo("2026-07-04"), fo("2026-07-21"), /* 17 j : même période */
+    fo("2026-08-11"), /* 21 j après : nouvelle période */ fo("2026-11-01"), fo("2026-11-08")];
+  const eps = hayPeriods(foins, "2026-11-20");
+  assert.equal(eps.length, 3);
+  assert.deepEqual([eps[0].from, eps[0].to, eps[0].n, eps[0].live], ["2026-11-01", "2026-11-08", 2, true]);
+  assert.deepEqual([eps[1].from, eps[1].to, eps[1].n, eps[1].live], ["2026-08-11", "2026-08-11", 1, false]);
+  assert.deepEqual([eps[2].from, eps[2].to, eps[2].n], ["2026-07-01", "2026-07-21", 4]);
+  assert.equal(hayPeriods(foins, "2026-11-29")[0].live, false);
+  /* jours comptés : 21 (juillet) + 1 (août) + 20 (1er→20 nov., en cours) = 42 j = 6 semaines, 7 apports */
+  assert.ok(Math.abs(hayRate(foins, "2026-11-20") - 7 / 6) < 1e-9);
+  assert.equal(hayRate([], "2026-11-20"), null);
 });

@@ -34,6 +34,7 @@ Le script serveur est **hors de ce dossier** : `../paturage_v9_serveur/` (il con
 - **Un déplacement = un seul enregistrement** (troupeau, date, destination). La sortie du paddock précédent est implicite : plus de « sortie auto » ni de sorties orphelines. Le jour du changement compte pour le nouveau lieu (plus de double comptage).
 - **Hors-paddock** (piste, stabulation…) est une destination : il ferme le séjour et démarre le repos du paddock.
 - **Synchronisation** : chaque modification (déplacement, correction, suppression, troupeau, composition, catégorie, foin) passe par une boîte d'envoi qui ne se vide qu'après confirmation du serveur. Hors réseau, les saisies attendent. Entre appareils, la modification la plus récente l'emporte.
+- **Onglet Foin** (9.3.0) : bilan des round-ballers apportés (total, foin/enrubanné, année de fauche, barres par semaine ou par mois, par troupeau). Pas de saison fixe : les périodes de foin sont repérées automatiquement, 3 semaines sans foin en terminent une (`HAY_GAP` dans `js/domain.js`). Le rythme (round-ballers par semaine) ne compte que les périodes de foin. La fiche de chaque troupeau a aussi un bloc Foin.
 - **Annuler** pendant quelques secondes après chaque saisie, correction ou suppression, au lieu des fenêtres de confirmation.
 
 ## Fonctions reprises de la v8
